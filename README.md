@@ -3,7 +3,7 @@
 > **This is the SHOS fork of [jay-oswald/ha-wican](https://github.com/jay-oswald/ha-wican)** (MIT), kept on
 > `git.home.casaeureka.ca/shos/ha-wican` and mirrored here. It is upstream's `webhook` line plus what SHOS
 > needs and has offered upstream: every entry keyed on the device's `device_id`, a reconfigure step, and
-> tests that stay off the network. SHOS installs it at a pinned tag (`v1.0.1-shos.1`). Once upstream
+> tests that stay off the network. SHOS installs it at a pinned tag (`v1.0.1-shos.2`). Once upstream
 > releases these changes, SHOS returns to upstream.
 
 # About
