@@ -7,7 +7,7 @@
 > credentials never kept), its posts accepted only from the local network when the entry says `local_only`,
 > a firmware file checked against the sha256 its release publishes before it is flashed, the device made
 > before the `device_id` was known moved onto it, and the webhook's URL redacted from diagnostics. SHOS
-> installs it at a pinned tag (`v1.0.1-shos.4`). Once upstream releases these changes, SHOS returns to
+> installs it at a pinned tag (`v1.0.1-shos.5`). Once upstream releases these changes, SHOS returns to
 > upstream.
 
 # About
