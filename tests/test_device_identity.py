@@ -337,3 +337,41 @@ async def test_the_webhook_is_registered_local_only_as_the_entry_says(
         await hass.async_block_till_done()
 
     assert register.call_args.kwargs["local_only"] is local_only
+
+
+async def test_a_post_without_the_device_id_is_refused_and_nothing_in_it_kept(
+    hass: HomeAssistant,
+    mock_aiohttp_session,
+    hass_client_no_auth,
+) -> None:
+    """Once the entry knows its device, a post that does not say it is that device changes nothing."""
+    entry = _entry(hass, device_id=TEST_DEVICE_ID)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    data = dict(entry.data)
+
+    client = await hass_client_no_auth()
+    response = await client.post(f"/api/webhook/{entry.data[CONF_WEBHOOK_ID]}", json={"status": {"fw_version": "9.99"}})
+    await hass.async_block_till_done()
+
+    assert response.status == 403
+    assert dict(entry.data) == data
+
+
+async def test_the_address_a_post_came_from_does_not_replace_the_entry_s_name(
+    hass: HomeAssistant,
+    mock_aiohttp_session,
+    mock_webhook_data,
+    hass_client_no_auth,
+) -> None:
+    """An entry reached by its mDNS name keeps it: the sender's address never becomes its host."""
+    entry = _entry(hass, unique_id=None)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    client = await hass_client_no_auth()
+    await client.post(f"/api/webhook/{entry.data[CONF_WEBHOOK_ID]}", json=mock_webhook_data)
+    await hass.async_block_till_done()
+
+    assert CONF_HOST not in entry.data
+    assert entry.data["mdns"] == "http://wican_old.local"

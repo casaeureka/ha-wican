@@ -609,6 +609,7 @@ async def test_pid_sensor_empty_autopid_data(
     # Send webhook with empty autopid_data
     data = {
         "status": {
+            "device_id": "test_device_123",
             "wifi_mode": "Station",
             "batt_voltage": "12.5V",
             "vpn_status": "Not Connected",
@@ -633,6 +634,7 @@ async def test_pid_sensor_no_autopid_data(
     # Send webhook without autopid_data at all
     data = {
         "status": {
+            "device_id": "test_device_123",
             "wifi_mode": "Station",
             "batt_voltage": "12.5V",
             "vpn_status": "Not Connected",
@@ -657,6 +659,7 @@ async def test_pid_sensor_with_config_from_webhook(
     # Send webhook with PID data AND config
     data = {
         "status": {
+            "device_id": "test_device_123",
             "wifi_mode": "Station",
             "batt_voltage": "12.5V",
         },

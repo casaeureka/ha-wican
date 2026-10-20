@@ -283,9 +283,24 @@ async def async_setup_entry(  # noqa: C901, PLR0915
                 text=error.error_message, status=HTTPStatus.UNPROCESSABLE_ENTITY,
             )
 
+        # The device says who it is in every post. Once the entry knows its
+        # device_id, a post that does not carry it is not the device's: it is
+        # refused before anything in it is kept (where Home Assistant reaches
+        # the device included).
+        status = data.get("status", {})
+        stored_device_id = entry.data.get("device_id")
+        incoming_device_id = status.get("device_id") or data.get("device_id")
+        if stored_device_id and incoming_device_id != stored_device_id:
+            _LOGGER.warning(
+                "Refused a webhook for WiCAN %s: it carries device_id %r, not %r",
+                entry.title,
+                incoming_device_id,
+                stored_device_id,
+            )
+            return Response(text="Device identity mismatch", status=HTTPStatus.FORBIDDEN)
+
         # Extract device info fields from top-level or nested "status"
         device_info_fields = {}
-        status = data.get("status", {})
         for key in ("fw_version", "hw_version", "device_id", "git_version", "mdns", "host", "ip"):
             # Check top-level first, then status
             if key in status:
@@ -302,10 +317,11 @@ async def async_setup_entry(  # noqa: C901, PLR0915
         if remote_ip:
             entry.runtime_data.device_ip = remote_ip
             device_info_fields["ip"] = remote_ip
-            # Don't set host from IP if we already have a hostname
-            # (avoid triggering re-registration when IP resolves to stored hostname)
+            # Where Home Assistant reaches the device is the entry's: the
+            # address a post came from fills it in only for an entry that has
+            # none at all, never beside an mDNS name or a host it was given.
             host_from_ip = _http_url_from_host(remote_ip)
-            if host_from_ip and not entry.data.get("host"):
+            if host_from_ip and not any(entry.data.get(key) for key in _CONNECTION_FIELDS):
                 entry.runtime_data.device_host = host_from_ip
                 device_info_fields["host"] = host_from_ip
 

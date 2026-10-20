@@ -116,8 +116,9 @@ async def test_webhook_device_identity_mismatch(
         json=wrong_device_data,
     )
 
-    # Integration accepts data from any device on this webhook (doesn't validate device_id)
-    assert resp.status == 204
+    # Another device's post is refused, and nothing in it is kept
+    assert resp.status == 403
+    assert entry.runtime_data.coordinator.data.get("status", {}).get("device_id") != "different_device_456"
 
 
 async def test_entry_updated(

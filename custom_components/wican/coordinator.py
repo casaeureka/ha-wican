@@ -61,6 +61,10 @@ class WiCANDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=UPDATE_INTERVAL,
             config_entry=config_entry,
         )
+        # What the device pushed and what it answered, kept across a refresh
+        # that fails (it sleeps with its vehicle): never None, so an entity
+        # added before the first refresh succeeds reads an empty dict.
+        self.data = self._data
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Ask the device for its status; what it reads from the vehicle arrives through the webhook.

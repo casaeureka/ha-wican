@@ -147,3 +147,23 @@ async def test_the_status_shows_at_setup_not_the_state_restored_from_before(
         if entity.unique_id.endswith("_uptime")
     )
     assert hass.states.get(uptime).state == "00:00:06"
+
+
+async def test_the_firmware_entity_loads_while_the_device_does_not_answer(
+    hass: HomeAssistant,
+    aioclient_mock,
+) -> None:
+    """A device asleep at Home Assistant's start leaves the coordinator with nothing read: every entity still loads."""
+    aioclient_mock.get(f"{ADDRESS}/check_status", exc=TimeoutError())
+    entry = _entry(hass)
+
+    with patch("custom_components.wican._async_register_webhook_on_device", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    firmware = next(
+        entity.entity_id
+        for entity in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+        if entity.domain == "update"
+    )
+    assert hass.states.get(firmware) is not None
