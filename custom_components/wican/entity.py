@@ -60,6 +60,11 @@ class WiCANEntity(CoordinatorEntity[WiCANDataUpdateCoordinator]):
             async_dispatcher_connect(self.hass, DOMAIN, _handle_event_filtered),
         )
 
+        # The coordinator's first refresh ran before the entity existed: show
+        # what it read now, not the restored state until the next refresh.
+        if self.coordinator.data:
+            self._handle_coordinator_update()
+
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         # Default implementation - subclasses should override this

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 from uuid import uuid4
 
 from homeassistant.const import CONF_WEBHOOK_ID
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -126,3 +127,23 @@ async def test_the_same_firmware_changes_nothing(hass: HomeAssistant, aioclient_
     await coordinator.async_refresh()
 
     assert dict(entry.data) == data
+
+
+async def test_the_status_shows_at_setup_not_the_state_restored_from_before(
+    hass: HomeAssistant,
+    aioclient_mock,
+) -> None:
+    """The first refresh runs before the entities exist: they show it at once, not after the next refresh."""
+    aioclient_mock.get(f"{ADDRESS}/check_status", json=STATUS)
+    entry = _entry(hass)
+
+    with patch("custom_components.wican._async_register_webhook_on_device", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    uptime = next(
+        entity.entity_id
+        for entity in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+        if entity.unique_id.endswith("_uptime")
+    )
+    assert hass.states.get(uptime).state == "00:00:06"
