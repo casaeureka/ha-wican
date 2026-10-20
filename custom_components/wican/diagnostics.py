@@ -4,12 +4,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.components.diagnostics import REDACTED, async_redact_data
 from homeassistant.const import CONF_WEBHOOK_ID
+from homeassistant.helpers import entity_registry as er
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
     from . import WiCANConfigEntry
+
+#: What would let anyone post to the entry's webhook: its id, and the URL that carries it.
+TO_REDACT = {CONF_WEBHOOK_ID, "webhook_url"}
 
 
 async def async_get_config_entry_diagnostics(
@@ -18,19 +23,16 @@ async def async_get_config_entry_diagnostics(
     """Return diagnostics for a config entry."""
     coordinator = config_entry.runtime_data.coordinator
 
-    # Redact sensitive data
-    entry_data = dict(config_entry.data)
-    if CONF_WEBHOOK_ID in entry_data:
-        entry_data[CONF_WEBHOOK_ID] = "**REDACTED**"
+    entry_data = async_redact_data(dict(config_entry.data), TO_REDACT)
 
-    # Collect all WiCAN entity states
+    # The entry's own entities, whatever their entity_id became.
     wican_entities = {}
-    for state in hass.states.async_all():
-        if state.entity_id.startswith(("sensor.wican_", "binary_sensor.wican_")):
-            wican_entities[state.entity_id] = {
-                "state": state.state,
-                "attributes": dict(state.attributes),
-            }
+    for entity in er.async_entries_for_config_entry(er.async_get(hass), config_entry.entry_id):
+        state = hass.states.get(entity.entity_id)
+        wican_entities[entity.entity_id] = {
+            "state": state.state if state else None,
+            "attributes": dict(state.attributes) if state else {},
+        }
 
     return {
         "entry": {
@@ -50,7 +52,7 @@ async def async_get_config_entry_diagnostics(
             "ip": config_entry.data.get("ip"),
         },
         "runtime_data": {
-            "webhook_id": "**REDACTED**",
+            "webhook_id": REDACTED,
             "post_interval": config_entry.runtime_data.post_interval,
             "device_host": config_entry.runtime_data.device_host,
             "device_ip": config_entry.runtime_data.device_ip,

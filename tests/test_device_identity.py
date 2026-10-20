@@ -9,10 +9,12 @@ from uuid import uuid4
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_WEBHOOK_ID
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.wican.const import DOMAIN
+from custom_components.wican.const import CONF_LOCAL_ONLY, DOMAIN
 
 from .conftest import TEST_DEVICE_ID
 
@@ -97,13 +99,13 @@ async def test_reconfigure_moves_the_entry_to_the_new_address(
 
 
 async def test_reconfigure_suggests_the_address_the_entry_has(hass: HomeAssistant) -> None:
-    """The form opens on the addresses the entry already uses, as typed."""
+    """The form opens on the addresses the entry already uses, as typed, and on whether it is local only."""
     entry = _entry(hass, host="http://192.168.1.10")
 
     result = await entry.start_reconfigure_flow(hass)
 
     suggested = {str(key): key.description["suggested_value"] for key in result["data_schema"].schema}
-    assert suggested == {"mdns": "wican_old.local", CONF_HOST: "192.168.1.10"}
+    assert suggested == {"mdns": "wican_old.local", CONF_HOST: "192.168.1.10", CONF_LOCAL_ONLY: False}
 
 
 async def test_reconfigure_refuses_another_device(hass: HomeAssistant, device_answers) -> None:
@@ -259,3 +261,79 @@ async def test_a_webhook_fills_in_an_address_the_entry_lacks(
     await hass.async_block_till_done()
 
     assert entry.data["mdns"] == "wican_a0b1c2d3e4f5.local"
+
+
+async def test_setup_rekeys_the_device_made_before_the_device_id_was_known(
+    hass: HomeAssistant,
+    mock_aiohttp_session,
+) -> None:
+    """The device keyed on the entry takes the device_id: one device, its name kept, nothing left behind."""
+    entry = _entry(hass, device_id=TEST_DEVICE_ID)
+    devices = dr.async_get(hass)
+    old = devices.async_get_or_create(config_entry_id=entry.entry_id, identifiers={(DOMAIN, entry.entry_id)})
+    devices.async_update_device(old.id, name_by_user="The van's WiCAN")
+
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    (device,) = dr.async_entries_for_config_entry(devices, entry.entry_id)
+    assert device.id == old.id
+    assert device.identifiers == {(DOMAIN, TEST_DEVICE_ID)}
+    assert device.name_by_user == "The van's WiCAN"
+
+
+async def test_setup_removes_the_empty_device_left_beside_the_device_id_one(
+    hass: HomeAssistant,
+    mock_aiohttp_session,
+) -> None:
+    """Two devices for one entry (the device_id one made by an older release): what the first holds moves, and it goes."""
+    entry = _entry(hass, device_id=TEST_DEVICE_ID)
+    devices = dr.async_get(hass)
+    entities = er.async_get(hass)
+    old = devices.async_get_or_create(config_entry_id=entry.entry_id, identifiers={(DOMAIN, entry.entry_id)})
+    new = devices.async_get_or_create(config_entry_id=entry.entry_id, identifiers={(DOMAIN, TEST_DEVICE_ID)})
+    stray = entities.async_get_or_create(
+        "sensor", DOMAIN, f"{entry.entry_id}_stray", config_entry=entry, device_id=old.id,
+    )
+
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert devices.async_get(old.id) is None
+    assert entities.async_get(stray.entity_id).device_id == new.id
+    assert [device.id for device in dr.async_entries_for_config_entry(devices, entry.entry_id)] == [new.id]
+
+
+async def test_reconfigure_keeps_local_only_as_asked(
+    hass: HomeAssistant,
+    mock_aiohttp_session,
+    device_answers,
+) -> None:
+    """Accepting the device's posts only from the LAN is set, and unset, by the reconfigure step."""
+    entry = _entry(hass)
+    device_answers("http://wican.example.org")
+
+    with patch("custom_components.wican.async_setup_entry", return_value=True):
+        await _reconfigure(hass, entry, {"mdns": "wican.example.org", CONF_LOCAL_ONLY: True})
+        await hass.async_block_till_done()
+        assert entry.data[CONF_LOCAL_ONLY] is True
+
+        await _reconfigure(hass, entry, {"mdns": "wican.example.org"})
+        await hass.async_block_till_done()
+        assert entry.data[CONF_LOCAL_ONLY] is False
+
+
+@pytest.mark.parametrize("local_only", [True, False])
+async def test_the_webhook_is_registered_local_only_as_the_entry_says(
+    hass: HomeAssistant,
+    mock_aiohttp_session,
+    local_only: bool,
+) -> None:
+    """Home Assistant refuses the device's posts from outside its network when the entry asks for it."""
+    entry = _entry(hass, **{CONF_LOCAL_ONLY: local_only})
+
+    with patch("custom_components.wican.webhook.async_register") as register:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert register.call_args.kwargs["local_only"] is local_only

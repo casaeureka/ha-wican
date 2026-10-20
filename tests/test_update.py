@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -17,9 +18,16 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.wican.const import DOMAIN
+from custom_components.wican.exceptions import FirmwareDownloadError
+from custom_components.wican.update import _verify_digest
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
+
+
+#: What every fake release asset holds, and the sha256 GitHub would publish for it.
+FAKE_FIRMWARE = b"fake_firmware_data"
+FAKE_FIRMWARE_DIGEST = f"sha256:{hashlib.sha256(FAKE_FIRMWARE).hexdigest()}"
 
 
 @pytest.fixture(autouse=True)
@@ -45,6 +53,7 @@ def mock_github_release():
         "assets": [
             {
                 "name": "wican-fw_obd_v413.bin",
+                "digest": FAKE_FIRMWARE_DIGEST,
                 "browser_download_url": "https://github.com/meatpiHQ/wican-fw/releases/download/v4.13/wican-fw_obd_v413.bin",
                 "size": 1646592,  # 1.57 MB from screenshot
             },
@@ -55,6 +64,7 @@ def mock_github_release():
             },
             {
                 "name": "wican-fw_usb_v413u.bin",
+                "digest": FAKE_FIRMWARE_DIGEST,
                 "browser_download_url": "https://github.com/meatpiHQ/wican-fw/releases/download/v4.13/wican-fw_usb_v413u.bin",
                 "size": 1646592,  # 1.57 MB from screenshot
             },
@@ -79,6 +89,7 @@ def mock_github_release_pro():
         "assets": [
             {
                 "name": "wican-fw_obd_pro_v445p.bin",
+                "digest": FAKE_FIRMWARE_DIGEST,
                 "browser_download_url": "https://github.com/meatpiHQ/wican-fw/releases/download/v4.45p/wican-fw_obd_pro_v445p.bin",
                 "size": 3342336,  # 3.19 MB from screenshot
             },
@@ -278,7 +289,7 @@ async def test_firmware_filename_standard(
         mock_gh_session.return_value.get = AsyncMock(return_value=mock_gh_response)
 
         # Mock firmware download
-        mock_firmware_data = b"fake_firmware_data"
+        mock_firmware_data = FAKE_FIRMWARE
         mock_download_response = AsyncMock()
         mock_download_response.read.return_value = mock_firmware_data
         mock_download_response.raise_for_status = MagicMock()
@@ -339,7 +350,7 @@ async def test_firmware_filename_pro(
         mock_gh_session.return_value.get = AsyncMock(return_value=mock_gh_response)
 
         # Mock firmware download
-        mock_firmware_data = b"fake_firmware_data_pro"
+        mock_firmware_data = FAKE_FIRMWARE
         mock_download_response = AsyncMock()
         mock_download_response.read.return_value = mock_firmware_data
         mock_download_response.raise_for_status = MagicMock()
@@ -399,7 +410,7 @@ async def test_firmware_filename_usb(
         mock_gh_session.return_value.get = AsyncMock(return_value=mock_gh_response)
 
         # Mock firmware download
-        mock_firmware_data = b"fake_firmware_data_usb"
+        mock_firmware_data = FAKE_FIRMWARE
         mock_download_response = AsyncMock()
         mock_download_response.read.return_value = mock_firmware_data
         mock_download_response.raise_for_status = MagicMock()
@@ -507,7 +518,7 @@ async def test_firmware_upload_connection_error(
         mock_gh_session.return_value.get = AsyncMock(return_value=mock_gh_response)
 
         # Mock firmware download success
-        mock_firmware_data = b"fake_firmware_data"
+        mock_firmware_data = FAKE_FIRMWARE
         mock_download_response = AsyncMock()
         mock_download_response.read.return_value = mock_firmware_data
         mock_download_response.raise_for_status = MagicMock()
@@ -571,6 +582,7 @@ async def test_firmware_update_with_specific_version(
             "assets": [
                 {
                     "name": "wican-fw_obd_v440.bin",
+                    "digest": FAKE_FIRMWARE_DIGEST,
                     "browser_download_url": "https://github.com/meatpiHQ/wican-fw/releases/download/v4.40/wican-fw_obd_v440.bin",
                     "size": 1600000,
                 },
@@ -578,7 +590,7 @@ async def test_firmware_update_with_specific_version(
         }
 
         # Mock firmware download
-        mock_firmware_data = b"fake_firmware_v4.40"
+        mock_firmware_data = FAKE_FIRMWARE
         mock_download_response = AsyncMock()
         mock_download_response.read = AsyncMock(return_value=mock_firmware_data)
         mock_download_response.raise_for_status = MagicMock()
@@ -698,7 +710,7 @@ async def test_progress_reporting_during_update(
         mock_gh_session.return_value.get = AsyncMock(return_value=mock_gh_response)
 
         # Mock firmware download
-        mock_firmware_data = b"fake_firmware_data"
+        mock_firmware_data = FAKE_FIRMWARE
         mock_download_response = AsyncMock()
         mock_download_response.read.return_value = mock_firmware_data
         mock_download_response.raise_for_status = MagicMock()
@@ -725,3 +737,28 @@ async def test_progress_reporting_during_update(
         state = hass.states.get("update.wican_device_firmware")
         assert state is not None
         assert state.attributes.get("in_progress") is False
+
+
+FIRMWARE = b"firmware image"
+
+
+def _asset(digest: str | None) -> dict:
+    asset = {"name": "wican-fw_obd_pro_v451p.bin"}
+    if digest is not None:
+        asset["digest"] = digest
+    return asset
+
+
+def test_a_firmware_matching_its_published_digest_is_accepted() -> None:
+    """The file the release published goes to the device."""
+    _verify_digest(FIRMWARE, _asset(f"sha256:{hashlib.sha256(FIRMWARE).hexdigest()}"))
+
+
+@pytest.mark.parametrize(
+    "digest",
+    [f"sha256:{hashlib.sha256(b'another image').hexdigest()}", None, "", "md5:0123"],
+)
+def test_a_firmware_that_cannot_be_checked_or_does_not_match_is_refused(digest: str | None) -> None:
+    """A file that is not the published one, or one with no sha256 to check, is never flashed."""
+    with pytest.raises(FirmwareDownloadError):
+        _verify_digest(FIRMWARE, _asset(digest))

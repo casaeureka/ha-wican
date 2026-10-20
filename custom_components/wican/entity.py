@@ -36,12 +36,6 @@ class WiCANEntity(CoordinatorEntity[WiCANDataUpdateCoordinator]):
         self.entity_description = entity_description
         self.webhook_id = config_entry.runtime_data.webhook_id
         self._attr_name = entity_description.key
-        self._attr_device_info = DeviceInfo(
-            connections={(DOMAIN, config_entry.entry_id)},
-            manufacturer="MeatPi",
-            model="WiCAN",
-            name=config_entry.title,
-        )
 
     @abstractmethod
     def _async_handle_event(self, webhook_id: str, data: dict[str, str]) -> None:

@@ -6,7 +6,11 @@
           "description": "WiCAN devices are usually discovered automatically. Use manual setup only if automatic discovery failed.\n\nEnter the hostname or IP address of your WiCAN device.",
           "data": {
             "mdns": "Hostname or IP address",
-            "host": "Alternative IP (optional)"
+            "host": "Alternative IP (optional)",
+            "local_only": "Accept its data only from the local network"
+          },
+          "data_description": {
+            "local_only": "Turn on when the WiCAN is always on Home Assistant's own network: Home Assistant then refuses its webhook from anywhere else. Leave off for a WiCAN PRO that posts from the road through an external address."
           }
         },
         "zeroconf_confirm": {
@@ -14,11 +18,15 @@
           "description": "Do you want to add the WiCAN device **{name}** at `{url}` to Home Assistant?"
         },
         "reconfigure": {
-          "title": "Change the WiCAN's address",
+          "title": "Change how Home Assistant reaches the WiCAN",
           "description": "Enter where Home Assistant now reaches this WiCAN. It must answer there as the same device.",
           "data": {
             "mdns": "Hostname or IP address",
-            "host": "Alternative IP (optional)"
+            "host": "Alternative IP (optional)",
+            "local_only": "Accept its data only from the local network"
+          },
+          "data_description": {
+            "local_only": "Turn on when the WiCAN is always on Home Assistant's own network: Home Assistant then refuses its webhook from anywhere else. Leave off for a WiCAN PRO that posts from the road through an external address."
           }
         }
       },

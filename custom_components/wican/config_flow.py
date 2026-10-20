@@ -17,11 +17,14 @@ import voluptuous as vol
 from yarl import URL
 
 from .const import (
+    CONF_LOCAL_ONLY,
     CONF_POST_INTERVAL,
     DEFAULT_POST_INTERVAL,
     DOMAIN,
     MAX_POST_INTERVAL,
     MIN_POST_INTERVAL,
+    STATUS_PATH,
+    STATUS_TIMEOUT,
 )
 from .helpers import resolve_webhook_url
 
@@ -33,13 +36,6 @@ if TYPE_CHECKING:
     from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 _LOGGER = logging.getLogger(__name__)
-
-# Where every WiCAN firmware (the original and the Pro) reports who it is.
-STATUS_PATH = "/check_status"
-
-# The device is on the local network: a status request answers at once or not at all.
-STATUS_TIMEOUT = aiohttp.ClientTimeout(total=5)
-
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for WiCAN discovery via Zeroconf."""
@@ -85,6 +81,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "webhook_url": webhook_url,
                         "device_id": device_id,
                         **connection,
+                        CONF_LOCAL_ONLY: user_input.get(CONF_LOCAL_ONLY, False),
                     },
                     description_placeholders={
                         "webhook_url": webhook_url,
@@ -99,7 +96,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> FlowResult:
-        """Change where Home Assistant reaches an existing device.
+        """Change where Home Assistant reaches an existing device, and whether it accepts posts only from the LAN.
 
         The device must answer at the new address as the same device: an
         address that answers with another device_id is refused, so a
@@ -121,12 +118,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_update_reload_and_abort(
                     entry,
                     unique_id=device_id,
-                    data={**data, **connection, "device_id": device_id},
+                    data={
+                        **data,
+                        **connection,
+                        "device_id": device_id,
+                        CONF_LOCAL_ONLY: user_input.get(CONF_LOCAL_ONLY, False),
+                    },
                 )
 
         current = user_input or {
             "mdns": _strip_http(entry.data.get("mdns")),
             CONF_HOST: _strip_http(entry.data.get(CONF_HOST)),
+            CONF_LOCAL_ONLY: entry.data.get(CONF_LOCAL_ONLY, False),
         }
         return self.async_show_form(
             step_id="reconfigure",
@@ -284,6 +287,7 @@ _CONNECTION_SCHEMA = vol.Schema(
     {
         vol.Required("mdns"): str,
         vol.Optional(CONF_HOST): str,
+        vol.Optional(CONF_LOCAL_ONLY, default=False): bool,
     },
 )
 
@@ -321,7 +325,7 @@ async def _fetch_device_id(hass: HomeAssistant, *urls: str | None) -> str | None
             continue
         status_url = f"{url.rstrip('/')}{STATUS_PATH}"
         try:
-            async with session.get(status_url, timeout=STATUS_TIMEOUT) as response:
+            async with session.get(status_url, timeout=aiohttp.ClientTimeout(total=STATUS_TIMEOUT)) as response:
                 if response.status != HTTPStatus.OK:
                     _LOGGER.debug("Status request to %s returned HTTP %s", status_url, response.status)
                     continue

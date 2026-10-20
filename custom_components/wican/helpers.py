@@ -15,7 +15,7 @@ from .const import DOMAIN
 from .exceptions import WiCANConnectionError, WiCANError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine
+    from collections.abc import Callable, Coroutine, Mapping
 
     from homeassistant.core import HomeAssistant
 
@@ -25,6 +25,14 @@ _LOGGER = logging.getLogger(__name__)
 
 _WiCANEntityT = TypeVar("_WiCANEntityT", bound="WiCANEntity")
 _P = TypeVar("_P")
+
+
+def device_url(entry_data: Mapping[str, Any]) -> str | None:
+    """Where Home Assistant reaches the device, as an http URL: the entry's host, else its mDNS address."""
+    for address in (entry_data.get("host"), entry_data.get("mdns")):
+        if address:
+            return address if address.startswith(("http://", "https://")) else f"http://{address}"
+    return None
 
 
 def build_webhook_url(base_url: str, webhook_id: str) -> str:
@@ -64,7 +72,7 @@ def resolve_local_webhook_url(
             build_webhook_url(local_base, webhook_id),
             allowed_schemes={"http"},
         )
-    except NoURLAvailableError as original_error:
+    except NoURLAvailableError:
         if require_current_request:
             try:
                 current_request_base = get_url(
@@ -90,7 +98,7 @@ def resolve_local_webhook_url(
             except NoURLAvailableError:
                 pass
 
-        raise original_error
+        raise
 
 
 def resolve_external_webhook_url(hass: HomeAssistant, webhook_id: str) -> str:

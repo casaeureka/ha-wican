@@ -17,12 +17,14 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_WEBHOOK_ID, EVENT_HOMEASSISTANT_STARTED, Platform
 from homeassistant.core import callback
 from homeassistant.exceptions import ConfigEntryError
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 import voluptuous as vol
 from yarl import URL
 
 from .const import (
+    CONF_LOCAL_ONLY,
     CONF_POST_INTERVAL,
     DEFAULT_POST_INTERVAL,
     DOMAIN,
@@ -328,6 +330,7 @@ async def async_setup_entry(  # noqa: C901, PLR0915
             if data_changed:
                 hass.config_entries.async_update_entry(entry, data=new_data)
                 _async_adopt_device_identity(hass, entry)
+                _async_rekey_device(hass, entry)
                 if connection_field_changed:
                     entry.runtime_data.device_host = new_data.get("host") or entry.runtime_data.device_host
                     entry.runtime_data.device_ip = new_data.get("ip") or entry.runtime_data.device_ip
@@ -356,13 +359,19 @@ async def async_setup_entry(  # noqa: C901, PLR0915
         return Response(status=HTTPStatus.NO_CONTENT)
 
     webhook.async_register(
-        hass, DOMAIN, entry.title, webhook_id, handle_webhook,
+        hass,
+        DOMAIN,
+        entry.title,
+        webhook_id,
+        handle_webhook,
+        local_only=entry.data.get(CONF_LOCAL_ONLY, False),
     )
 
     # Normalize host/mdns schemes BEFORE scheduling registration
     # to avoid triggering update listener which would cause duplicate registrations
     _normalize_connection_urls(hass, entry)
     _async_adopt_device_identity(hass, entry)
+    _async_rekey_device(hass, entry)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -412,6 +421,38 @@ def _async_adopt_device_identity(hass: HomeAssistant, entry: WiCANConfigEntry) -
         )
         return
     hass.config_entries.async_update_entry(entry, unique_id=device_id)
+
+
+@callback
+def _async_rekey_device(hass: HomeAssistant, entry: WiCANConfigEntry) -> None:
+    """Move the device an entry made before its device_id was known onto that device_id.
+
+    Until the device_id is known, the entry's device is keyed on the entry_id
+    (``WiCANEntity.device_info``). Once it is known, the entities ask for a
+    device keyed on the device_id: without this, Home Assistant made that a
+    second device, moved the entities to it, and left the first one behind
+    with nothing on it. So the first device takes the new identity instead,
+    keeping its name, area and history; when the device_id device exists
+    already, whatever entities the first still holds move to it, and the
+    first is removed.
+    """
+    device_id = entry.data.get("device_id")
+    if not device_id:
+        return
+    devices = dr.async_get(hass)
+    old = devices.async_get_device(identifiers={(DOMAIN, entry.entry_id)})
+    if old is None:
+        return
+    new = devices.async_get_device(identifiers={(DOMAIN, device_id)})
+    if new is None:
+        devices.async_update_device(old.id, new_identifiers={(DOMAIN, device_id)})
+        _LOGGER.info("WiCAN device of entry %s re-keyed on device %s", entry.title, device_id)
+        return
+    entities = er.async_get(hass)
+    for entity in er.async_entries_for_device(entities, old.id, include_disabled_entities=True):
+        entities.async_update_entity(entity.entity_id, device_id=new.id)
+    devices.async_remove_device(old.id)
+    _LOGGER.info("WiCAN entry %s: its device keyed on the entry merged into device %s", entry.title, device_id)
 
 
 def _normalize_connection_urls(hass: HomeAssistant, entry: WiCANConfigEntry) -> None:

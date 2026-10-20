@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -18,6 +20,11 @@ from custom_components.wican.const import DOMAIN
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
+
+
+#: What every fake release asset holds, and the sha256 GitHub would publish for it.
+FAKE_FIRMWARE = b"fake_firmware_data"
+FAKE_FIRMWARE_DIGEST = f"sha256:{hashlib.sha256(FAKE_FIRMWARE).hexdigest()}"
 
 
 @pytest.fixture(autouse=True)
@@ -44,6 +51,7 @@ def mock_github_releases_list():
             "assets": [
                 {
                     "name": "wican-fw_obd_pro_v445p.bin",
+                    "digest": FAKE_FIRMWARE_DIGEST,
                     "browser_download_url": "https://github.com/meatpiHQ/wican-fw/releases/download/v4.45p/wican-fw_obd_pro_v445p.bin",
                     "size": 3342336,
                 },
@@ -58,6 +66,7 @@ def mock_github_releases_list():
             "assets": [
                 {
                     "name": "wican-fw_obd_pro_v444p.bin",
+                    "digest": FAKE_FIRMWARE_DIGEST,
                     "browser_download_url": "https://github.com/meatpiHQ/wican-fw/releases/download/v4.44p/wican-fw_obd_pro_v444p.bin",
                     "size": 3342336,
                 },
@@ -72,6 +81,7 @@ def mock_github_releases_list():
             "assets": [
                 {
                     "name": "wican-fw_obd_v413.bin",
+                    "digest": FAKE_FIRMWARE_DIGEST,
                     "browser_download_url": "https://github.com/meatpiHQ/wican-fw/releases/download/v4.13/wican-fw_obd_v413.bin",
                     "size": 1646592,
                 },
@@ -128,7 +138,7 @@ async def test_install_specific_version(
         await hass.async_block_till_done()
 
         # Mock firmware download for specific version (4.44p)
-        mock_firmware_data = b"fake_firmware_data_v444"
+        mock_firmware_data = FAKE_FIRMWARE
         mock_download_response = AsyncMock()
         mock_download_response.read.return_value = mock_firmware_data
         mock_download_response.raise_for_status = MagicMock()
@@ -227,7 +237,7 @@ async def test_install_latest_version_uses_cache(
         await hass.async_block_till_done()
 
         # Mock firmware download
-        mock_firmware_data = b"fake_firmware_data_v445"
+        mock_firmware_data = FAKE_FIRMWARE
         mock_download_response = AsyncMock()
         mock_download_response.read.return_value = mock_firmware_data
         mock_download_response.raise_for_status = MagicMock()

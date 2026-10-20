@@ -314,6 +314,16 @@ class WiCANPidSensorEntity(WiCANEntity, RestoreSensor):
         self._pending_value = None
         self._attr_native_value = None  # Initialize to None
 
+    @property
+    def available(self) -> bool:
+        """A reading of the vehicle stays the last one read while the device does not answer.
+
+        The device asks the vehicle only while its engine runs, and sleeps
+        with it: what it read last (the fuel level, the odometer) is still
+        the vehicle's, unlike the device's own status.
+        """
+        return True
+
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         pid_data = self.coordinator.data.get("autopid_data", {})

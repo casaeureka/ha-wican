@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import secrets
 from typing import TYPE_CHECKING, Any
@@ -376,6 +377,7 @@ class WiCANUpdateEntity(WiCANEntity, UpdateEntity):
                 firmware_filename,
                 len(firmware_data),
             )
+            _verify_digest(firmware_data, firmware_asset)
             return firmware_data, firmware_filename
 
     async def _upload_firmware_to_device(self, firmware_data: bytes, firmware_filename: str) -> None:
@@ -494,3 +496,29 @@ class WiCANUpdateEntity(WiCANEntity, UpdateEntity):
         """Return if entity is available."""
         # Available if we have version info from device
         return self.installed_version is not None
+
+
+#: How GitHub names the digest it publishes for every release asset.
+_SHA256_PREFIX = "sha256:"
+
+
+def _verify_digest(firmware_data: bytes, asset: dict[str, Any]) -> None:
+    """Refuse a firmware file that is not the one the release published.
+
+    GitHub publishes each release asset's sha256 (the asset's ``digest``).
+    The file is written to the device's flash and run there, so a file that
+    does not match it, or an asset with no digest to check it against, is
+    never sent to the device.
+
+    Raises:
+        FirmwareDownloadError: No sha256 digest is published, or the file does not match it.
+    """
+    name = asset.get("name", "firmware.bin")
+    digest = str(asset.get("digest") or "")
+    if not digest.startswith(_SHA256_PREFIX):
+        raise FirmwareDownloadError(f"GitHub publishes no sha256 digest for {name}: it cannot be checked")
+    actual = hashlib.sha256(firmware_data).hexdigest()
+    if actual != digest.removeprefix(_SHA256_PREFIX):
+        raise FirmwareDownloadError(
+            f"{name} does not match the sha256 its release publishes ({actual} instead of {digest})",
+        )

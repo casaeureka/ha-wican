@@ -110,3 +110,34 @@ async def test_diagnostics_includes_runtime_data(
     assert diagnostics["runtime_data"]["post_interval"] == 1000
     assert "device_host" in diagnostics["runtime_data"]
     assert "device_ip" in diagnostics["runtime_data"]
+
+
+async def test_diagnostics_redacts_the_webhook_url(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """The URL the device posts to carries the webhook id: anyone holding it could post as the device."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        data={**mock_config_entry.data, "webhook_url": "https://ha.example.org/api/webhook/test_webhook_id"},
+    )
+    with patch("custom_components.wican._async_register_webhook_on_device", return_value=True):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, mock_config_entry)
+
+    assert diagnostics["entry"]["data"]["webhook_url"] == "**REDACTED**"
+    assert "test_webhook_id" not in str(diagnostics)
+
+
+async def test_diagnostics_lists_the_entry_s_own_entities(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+) -> None:
+    """Every entity of the entry is listed, whatever its entity_id became."""
+    diagnostics = await async_get_config_entry_diagnostics(hass, init_integration)
+
+    assert diagnostics["entity_count"] > 0
+    assert all(entity_id.split(".")[0] in {"sensor", "binary_sensor", "device_tracker", "update"} for entity_id in diagnostics["entities"])

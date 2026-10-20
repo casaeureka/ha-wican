@@ -25,6 +25,26 @@ def auto_enable_custom_integrations(enable_custom_integrations):
     yield
 
 
+@pytest.fixture(autouse=True)
+def no_status_request(request):
+    """Keep the coordinator's status request off the network, except where a test asks for it.
+
+    The coordinator asks the device for its status on every refresh, setup
+    included. A test about something else has no device to answer: its
+    refresh keeps what the webhook pushed. A test marked ``asks_status``
+    answers the request itself (``aioclient_mock``).
+    """
+    if request.node.get_closest_marker("asks_status"):
+        yield
+        return
+
+    async def pushed_only(coordinator):
+        return coordinator._data  # noqa: SLF001  # stands in for the coordinator's own method
+
+    with patch("custom_components.wican.coordinator.WiCANDataUpdateCoordinator._async_update_data", pushed_only):
+        yield
+
+
 @pytest.fixture
 def mock_config_entry() -> MockConfigEntry:
     """Return a mock config entry."""

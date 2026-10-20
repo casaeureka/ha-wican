@@ -6,10 +6,15 @@ from datetime import timedelta
 import logging
 from typing import TYPE_CHECKING, Any
 
+from aiohttp import ClientError, ClientTimeout
 from homeassistant.exceptions import ConfigEntryError
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DOMAIN, WICAN_DATA_UPDATE_INTERVAL
+from .attributes import BINARY_SENSOR_DESCRIPTIONS, SENSOR_DESCRIPTIONS
+from .const import DOMAIN, STATUS_PATH, STATUS_TIMEOUT, WICAN_DATA_UPDATE_INTERVAL
+from .helpers import device_url
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -18,9 +23,23 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# WiCAN is push-based via webhooks, so we don't need frequent polling
-# This is just for fallback/health check
+# The device pushes through its webhook; its status is asked for this often.
 UPDATE_INTERVAL = timedelta(seconds=WICAN_DATA_UPDATE_INTERVAL)
+
+_STATUS_DESCRIPTIONS = (*SENSOR_DESCRIPTIONS, *BINARY_SENSOR_DESCRIPTIONS)
+
+#: What is kept of the status the device reports when asked (``/check_status``):
+#: the keys the entities and the device record read. That answer also carries
+#: the device's Wi-Fi, hotspot and MQTT credentials (the firmware leaves them
+#: out of its webhook's copy only), and none of them is kept.
+STATUS_KEYS: frozenset[str] = frozenset(
+    {"device_id", "fw_version", "hw_version", "git_version"}
+    | {description.key for description in _STATUS_DESCRIPTIONS}
+    | {key for description in _STATUS_DESCRIPTIONS for key in description.extra_attributes or ()},
+)
+
+#: The firmware the device runs, as the entry and its device record keep it.
+_FIRMWARE_KEYS = ("fw_version", "git_version")
 
 
 class WiCANDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -44,15 +63,49 @@ class WiCANDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Fetch data from WiCAN device.
+        """Ask the device for its status; what it reads from the vehicle arrives through the webhook.
 
-        This is a push-based integration, so we don't actively poll.
-        This method exists for health checks and fallback scenarios.
-        The real updates come through handle_webhook_data().
+        The device posts only once it has read the vehicle, so after a
+        restart with the engine off (a firmware update, a settings change) it
+        posts nothing until the next drive: without asking, its firmware
+        version, battery and uptime stayed what the last post said.
+
+        Raises:
+            UpdateFailed: The device does not answer (asleep with its vehicle,
+                or away), or answers with something that is not a status.
+            ConfigEntryError: Another device answers at the entry's address.
         """
-        # For push-based integrations, we just return the current data
-        # The webhook handler will call async_set_updated_data() when new data arrives
+        url = device_url(self.config_entry.data)
+        if url is None:
+            raise UpdateFailed(f"the WiCAN entry {self.config_entry.title} has no address to ask")
+        status_url = f"{url.rstrip('/')}{STATUS_PATH}"
+        session = async_get_clientsession(self.hass)
+        try:
+            async with session.get(status_url, timeout=ClientTimeout(total=STATUS_TIMEOUT)) as response:
+                response.raise_for_status()
+                status = await response.json(content_type=None)
+        except (TimeoutError, ClientError, ValueError) as err:
+            raise UpdateFailed(f"the WiCAN at {url} does not answer (asleep with its vehicle, or away): {err}") from err
+        if not isinstance(status, dict):
+            raise UpdateFailed(f"the WiCAN at {url} answered {STATUS_PATH} with something that is not an object")
+        self._validate_device_identity({"status": status})
+        kept = {key: value for key, value in status.items() if key in STATUS_KEYS}
+        self._data["status"] = {**self._data.get("status", {}), **kept}
+        self._record_firmware(kept)
         return self._data
+
+    def _record_firmware(self, status: dict[str, Any]) -> None:
+        """Keep the entry and its device record on the firmware the device reports, once it changed (an update)."""
+        entry = self.config_entry
+        changed = {key: status[key] for key in _FIRMWARE_KEYS if status.get(key) and status[key] != entry.data.get(key)}
+        if not changed:
+            return
+        self.hass.config_entries.async_update_entry(entry, data={**entry.data, **changed})
+        device_id = entry.data.get("device_id") or entry.entry_id
+        devices = dr.async_get(self.hass)
+        device = devices.async_get_device(identifiers={(DOMAIN, device_id)})
+        if device is not None and "fw_version" in changed:
+            devices.async_update_device(device.id, sw_version=changed["fw_version"])
 
     async def async_config_entry_first_refresh(self) -> None:
         """Perform first refresh of the coordinator.

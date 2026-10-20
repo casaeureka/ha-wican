@@ -4,6 +4,11 @@ DOMAIN = "wican"
 
 # Configuration
 CONF_POST_INTERVAL = "post_interval"
+# Accept the device's webhook posts only from the local network (Home Assistant's
+# own `local_only` webhook check). For a device that always sits on Home
+# Assistant's LAN; a Pro that posts from the road through an external URL needs
+# it off.
+CONF_LOCAL_ONLY = "local_only"
 DEFAULT_POST_INTERVAL = 15  # seconds
 MIN_POST_INTERVAL = 1
 MAX_POST_INTERVAL = 3600
@@ -43,5 +48,13 @@ OTA_FORM_FIELD = "ota_file"
 # Update Coordinator
 GITHUB_RELEASES_UPDATE_INTERVAL = 3600  # 1 hour
 
-# WiCAN Data Coordinator (push-based fallback polling)
+# WiCAN Data Coordinator: the device pushes through its webhook, and is asked for
+# its status this often, so a device that restarted with nothing to push (it
+# posts only once it has read the vehicle) still shows its firmware, battery
+# and uptime as they are.
 WICAN_DATA_UPDATE_INTERVAL = 300  # seconds (5 minutes)
+
+# Where every WiCAN firmware (the original and the Pro) reports who it is and how it runs.
+STATUS_PATH = "/check_status"
+# The device is on the local network: a status request answers at once or not at all.
+STATUS_TIMEOUT = 5  # seconds
