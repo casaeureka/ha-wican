@@ -1,5 +1,11 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 
+> **This is the SHOS fork of [jay-oswald/ha-wican](https://github.com/jay-oswald/ha-wican)** (MIT), kept on
+> `git.home.casaeureka.ca/shos/ha-wican` and mirrored here. It is upstream's `webhook` line plus what SHOS
+> needs and has offered upstream: every entry keyed on the device's `device_id`, a reconfigure step, and
+> tests that stay off the network. SHOS installs it at a pinned tag (`v1.0.1-shos.1`). Once upstream
+> releases these changes, SHOS returns to upstream.
+
 # About
 This is the official HomeAssistant integration for [WiCAN by meatpi](https://github.com/meatpiHQ/wican-fw).
 
