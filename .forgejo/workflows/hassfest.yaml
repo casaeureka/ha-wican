@@ -1,0 +1,35 @@
+# Home Assistant's hassfest, as upstream's .github/workflows/hassfest.yaml runs
+# it, on the SHOS forge. Forgejo reads this directory instead of .github/ when it
+# exists, so upstream's file stays as it is.
+#
+# Upstream's step cannot run here: `home-assistant/actions` is resolved against
+# code.forgejo.org, where it does not exist, and the action bind-mounts the
+# workspace with `docker run -v`. The forge's runner has no docker, only a
+# podman client of the host's engine, and the workspace is a path inside the
+# runner's container that the host does not have. So the integration is copied
+# into the container rather than mounted. With nothing copied the image says
+# "No integrations found!" and fails: it never passes having checked nothing.
+#
+# The image is hassfest's `latest`, as upstream runs it: it validates against
+# the Home Assistant that is current.
+name: Validate with hassfest
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 0 * * *"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: hassfest
+        run: |
+          ctr="hassfest-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          trap 'podman rm -f "$ctr" >/dev/null 2>&1' EXIT
+          podman pull -q ghcr.io/home-assistant/hassfest:latest
+          podman create --name "$ctr" ghcr.io/home-assistant/hassfest:latest
+          podman cp custom_components "$ctr":/github/workspace/custom_components
+          podman start --attach "$ctr"
